@@ -1,0 +1,19 @@
+# Composer Related
+composer.lock
+/vendor
+
+# Caches
+.phpunit.cache
+.phpunit.result.cache
+/build
+
+# Editors
+/.idea
+/.fleet
+/.vscode
+
+# Misc
+phpunit.xml
+phpstan.neon
+/coverage
+.DS_Store
