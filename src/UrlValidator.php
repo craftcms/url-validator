@@ -85,7 +85,7 @@ class UrlValidator
     {
         $this->resolver = $resolver ?? fn (string $host): array => $this->resolveHostIps($host);
 
-        if (!empty($options)) {
+        if (! empty($options)) {
             $this->allowedSchemes = $options['allowedSchemes'] ?? $this->allowedSchemes;
             $this->disallowedHostnames = $options['disallowedHostnames'] ?? $this->disallowedHostnames;
             $this->disallowedIpv4Addresses = $options['disallowedIpv4Addresses'] ?? $this->disallowedIpv4Addresses;
