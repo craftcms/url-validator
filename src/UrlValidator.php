@@ -19,13 +19,88 @@ class UrlValidator
     private $resolver;
 
     /**
+     * @var array|string[] A list of allowed schemes.
+     */
+    private array $allowedSchemes = ['http', 'https'];
+
+    /**
+     * @var array|string[] A list of disallowed hostnames.
+     *
+     * By default, this is a list of well-known cloud metadata domains which should be rejected.
+     * h/t https://gist.github.com/BuffaloWill/fa96693af67e3a3dd3fb
+     */
+    private array $disallowedHostnames = [
+        'kubernetes.default',
+        'kubernetes.default.svc',
+        'kubernetes.default.svc.cluster.local',
+        'metadata',
+        'metadata.google.internal',
+        'metadata.packet.net',
+    ];
+
+    /**
+     * @var array|string[] A list of disallowed IPv4 addresses.
+     *
+     * By default, we want to make sure it isn’t a known cloud metadata IP
+     * h/t https://gist.github.com/BuffaloWill/fa96693af67e3a3dd3fb
+     */
+    private array $disallowedIpv4Addresses = [
+        '100.100.100.200', // Alibaba
+        '169.254.169.254', // AWS, GCP, DO, Azure, Oracle, OpenStack/RackSpace
+        '169.254.170.2', // ECS
+        '192.0.0.192', // Oracle
+    ];
+
+    /**
+     * @var array|array[] A list of disallowed IPv4 subnets.
+     *
+     * By default, we block ranges PHP’s NO_PRIV_RANGE/NO_RES_RANGE flags don’t cover.
+     */
+    private array $disallowedIpv4Ranges = [
+        ['100.64.0.0', 10], // CGNAT shared address space (RFC 6598)
+        ['192.0.0.0', 24], // IETF protocol assignments (RFC 6890)
+        ['198.18.0.0', 15], // benchmarking (RFC 2544)
+    ];
+
+    /**
+     * @var int The flags to use when validating IPv4 addresses.
+     *
+     * By default, we only allow publicly-routable IPs (blocks private, loopback, link-local, etc.)
+     */
+    private int $ipv4FilterFlags = FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE | FILTER_FLAG_IPV4;
+
+    /**
+     * @var int The flags to use when validating IPv6 addresses.
+     *
+     * By default, we only allow publicly-routable IPs (blocks loopback, link-local, ULA, etc.)
+     */
+    private int $ipv6FilterFlags = FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE | FILTER_FLAG_IPV6;
+
+    /**
      * @param  callable(string):string[]|null  $resolver  A custom hostname resolver, primarily
      *                                                    useful for testing. Receives a hostname and should return its IP addresses. Defaults to
      *                                                    resolving against the system DNS via [[resolveHostIps()]].
      */
-    public function __construct(?callable $resolver = null)
+    public function __construct(?callable $resolver = null, ?array $options = null)
     {
         $this->resolver = $resolver ?? fn (string $host): array => $this->resolveHostIps($host);
+
+        if (!empty($options)) {
+            $this->allowedSchemes = $options['allowedSchemes'] ?? $this->allowedSchemes;
+            $this->disallowedHostnames = $options['disallowedHostnames'] ?? $this->disallowedHostnames;
+            $this->disallowedIpv4Addresses = $options['disallowedIpv4Addresses'] ?? $this->disallowedIpv4Addresses;
+            $this->disallowedIpv4Ranges = $options['disallowedIpv4Ranges'] ?? $this->disallowedIpv4Ranges;
+
+            if (isset($options['ipv4FilterFlags'])) {
+                // if the options come from the user, ensure the ipv4 flag is always set
+                $this->ipv4FilterFlags = $options['ipv4FilterFlags'] | FILTER_FLAG_IPV4;
+            }
+
+            if (isset($options['ipv6FilterFlags'])) {
+                // if the options come from the user, ensure the ipv6 flag is always set
+                $this->ipv6FilterFlags = $options['ipv6FilterFlags'] | FILTER_FLAG_IPV6;
+            }
+        }
     }
 
     /**
@@ -73,7 +148,7 @@ class UrlValidator
         // block Gopher/File/FTP Smuggling
         $scheme = parse_url($url, PHP_URL_SCHEME);
 
-        return in_array(strtolower((string) $scheme), ['http', 'https'], true);
+        return in_array(strtolower((string) $scheme), $this->allowedSchemes, true);
     }
 
     /**
@@ -106,16 +181,7 @@ class UrlValidator
             return false;
         }
 
-        // Check against well-known cloud metadata domains
-        // h/t https://gist.github.com/BuffaloWill/fa96693af67e3a3dd3fb
-        if (in_array($hostname, [
-            'kubernetes.default',
-            'kubernetes.default.svc',
-            'kubernetes.default.svc.cluster.local',
-            'metadata',
-            'metadata.google.internal',
-            'metadata.packet.net',
-        ], true)) {
+        if (in_array($hostname, $this->disallowedHostnames, true)) {
             return false;
         }
 
@@ -150,34 +216,17 @@ class UrlValidator
 
     private function validateIpv4(string $ip): bool
     {
-        // make sure it isn’t a known cloud metadata IP
-        // h/t https://gist.github.com/BuffaloWill/fa96693af67e3a3dd3fb
-        if (in_array($ip, [
-            '100.100.100.200', // Alibaba
-            '169.254.169.254', // AWS, GCP, DO, Azure, Oracle, OpenStack/RackSpace
-            '169.254.170.2', // ECS
-            '192.0.0.192', // Oracle
-        ], true)) {
+        if (in_array($ip, $this->disallowedIpv4Addresses, true)) {
             return false;
         }
 
-        // Block ranges PHP’s NO_PRIV_RANGE/NO_RES_RANGE flags don’t cover
-        $blockedRanges = [
-            ['100.64.0.0', 10], // CGNAT shared address space (RFC 6598)
-            ['192.0.0.0', 24], // IETF protocol assignments (RFC 6890)
-            ['198.18.0.0', 15], // benchmarking (RFC 2544)
-        ];
-
-        foreach ($blockedRanges as [$subnet, $bits]) {
+        foreach ($this->disallowedIpv4Ranges as [$subnet, $bits]) {
             if ($this->ipv4InRange($ip, $subnet, $bits)) {
                 return false;
             }
         }
 
-        // Only allow publicly-routable IPs (blocks private, loopback, link-local, etc.)
-        $flags = FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE | FILTER_FLAG_IPV4;
-
-        return filter_var($ip, FILTER_VALIDATE_IP, $flags) !== false;
+        return filter_var($ip, FILTER_VALIDATE_IP, $this->ipv4FilterFlags) !== false;
     }
 
     private function validateIpv6(string $ip, string $packed): bool
@@ -204,10 +253,7 @@ class UrlValidator
             return false;
         }
 
-        // Only allow publicly-routable IPs (blocks loopback, link-local, ULA, etc.)
-        $flags = FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE | FILTER_FLAG_IPV6;
-
-        return filter_var($ip, FILTER_VALIDATE_IP, $flags) !== false;
+        return filter_var($ip, FILTER_VALIDATE_IP, $this->ipv6FilterFlags) !== false;
     }
 
     /**

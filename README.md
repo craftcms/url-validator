@@ -6,7 +6,7 @@
 
 Validate URLs and IP addresses before opening a connection, to guard against [Server-Side Request Forgery (SSRF)](https://owasp.org/www-community/attacks/Server_Side_Request_Forgery) and DNS rebinding.
 
-The validator rejects:
+By default, the validator rejects:
 
 - Schemes other than `http` and `https` (blocking `file://`, `ftp://`, `gopher://`, etc.)
 - Raw IP literals, hex-encoded hostnames, and well-known cloud-metadata domains (AWS, GCP, Kubernetes, …)
@@ -80,6 +80,22 @@ constructor — useful for testing, or for plugging in a caching/alternate resol
 $validator = new UrlValidator(fn(string $host): array => [
     // ...resolved IP addresses for $host
 ]);
+```
+### Customizing other options
+
+The following options can also be configured by passing an array to the constructor as a second parameter. The following options are customizable:
+- `allowedSchemes`
+- `disallowedHostnames`
+- `disallowedIpv4Addresses`
+- `disallowedIpv4Ranges`
+- `ipv4FilterFlags` (the `FILTER_FLAG_IPV4` will always be added automatically)
+- `ipv6FilterFlags` (the `FILTER_FLAG_IPV6` will always be added automatically)
+
+See the codebase for the default values and expected types.
+
+```php
+// Allow private IP addresses but keep the reserved ranges disallowed
+$validator = new UrlValidator(options: ['ipv4FilterFlags' => FILTER_FLAG_NO_RES_RANGE]);
 ```
 
 ## Testing
