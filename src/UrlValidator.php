@@ -52,7 +52,7 @@ class UrlValidator
     ];
 
     /**
-     * @var array|array[] A list of disallowed IPv4 subnets.
+     * @var array{0:string,1:int}[] A list of disallowed IPv4 subnets.
      *
      * By default, we block ranges PHP’s NO_PRIV_RANGE/NO_RES_RANGE flags don’t cover.
      */
@@ -80,6 +80,7 @@ class UrlValidator
      * @param  callable(string):string[]|null  $resolver  A custom hostname resolver, primarily
      *                                                    useful for testing. Receives a hostname and should return its IP addresses. Defaults to
      *                                                    resolving against the system DNS via [[resolveHostIps()]].
+     * @param  array{allowedSchemes?:string[],disallowedHostnames?:string[],disallowedIpv4Addresses?:string[],disallowedIpv4Ranges?:array{0:string,1:int}[],ipv4FilterFlags?:int,ipv6FilterFlags?:int}|null  $options  Overrides for the default validation rules. Any key that’s omitted falls back to its default. `ipv4FilterFlags`/`ipv6FilterFlags` are combined with `FILTER_FLAG_IPV4`/`FILTER_FLAG_IPV6` respectively, so those don’t need to be included.
      */
     public function __construct(?callable $resolver = null, ?array $options = null)
     {
