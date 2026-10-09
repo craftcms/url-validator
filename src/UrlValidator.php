@@ -52,6 +52,17 @@ class UrlValidator
     ];
 
     /**
+     * @var string[] A list of disallowed IPv6 addresses.
+     *
+     * By default, these are the cloud metadata IPv6 addresses. They’re in the unique local range,
+     * so they need to stay blocked even for hosts that are allowed to resolve to private IPs.
+     */
+    private array $disallowedIpv6Addresses = [
+        'fd00:ec2::254', // AWS
+        'fd20:ce::254', // GCP
+    ];
+
+    /**
      * @var array{0:string,1:int}[] A list of disallowed IPv4 subnets.
      *
      * By default, we block ranges PHP’s NO_PRIV_RANGE/NO_RES_RANGE flags don’t cover.
@@ -90,7 +101,7 @@ class UrlValidator
      * @param  callable(string):string[]|null  $resolver  A custom hostname resolver, primarily
      *                                                    useful for testing. Receives a hostname and should return its IP addresses. Defaults to
      *                                                    resolving against the system DNS via [[resolveHostIps()]].
-     * @param  array{allowedSchemes?:string[],disallowedHostnames?:string[],disallowedIpv4Addresses?:string[],disallowedIpv4Ranges?:array{0:string,1:int}[],ipv4FilterFlags?:int,ipv6FilterFlags?:int,allowedPrivateHosts?:string[]}|null  $options  Overrides for the default validation rules. Any key that’s omitted falls back to its default. `ipv4FilterFlags`/`ipv6FilterFlags` are combined with `FILTER_FLAG_IPV4`/`FILTER_FLAG_IPV6` respectively, so those don’t need to be included.
+     * @param  array{allowedSchemes?:string[],disallowedHostnames?:string[],disallowedIpv4Addresses?:string[],disallowedIpv4Ranges?:array{0:string,1:int}[],disallowedIpv6Addresses?:string[],ipv4FilterFlags?:int,ipv6FilterFlags?:int,allowedPrivateHosts?:string[]}|null  $options  Overrides for the default validation rules. Any key that’s omitted falls back to its default. `ipv4FilterFlags`/`ipv6FilterFlags` are combined with `FILTER_FLAG_IPV4`/`FILTER_FLAG_IPV6` respectively, so those don’t need to be included.
      *
      * @throws \InvalidArgumentException if an `allowedPrivateHosts` entry isn’t a valid pattern.
      */
@@ -103,6 +114,7 @@ class UrlValidator
             $this->disallowedHostnames = $options['disallowedHostnames'] ?? $this->disallowedHostnames;
             $this->disallowedIpv4Addresses = $options['disallowedIpv4Addresses'] ?? $this->disallowedIpv4Addresses;
             $this->disallowedIpv4Ranges = $options['disallowedIpv4Ranges'] ?? $this->disallowedIpv4Ranges;
+            $this->disallowedIpv6Addresses = $options['disallowedIpv6Addresses'] ?? $this->disallowedIpv6Addresses;
 
             if (isset($options['ipv4FilterFlags'])) {
                 // if the options come from the user, ensure the ipv4 flag is always set
@@ -295,6 +307,13 @@ class UrlValidator
 
         foreach ($embeddedPrefixes as $prefix) {
             if (str_starts_with($packed, $prefix)) {
+                return false;
+            }
+        }
+
+        // compare the packed forms, so that equivalent spellings of an address can’t slip through
+        foreach ($this->disallowedIpv6Addresses as $disallowedIp) {
+            if (@inet_pton($disallowedIp) === $packed) {
                 return false;
             }
         }

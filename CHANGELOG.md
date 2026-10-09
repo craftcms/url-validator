@@ -7,6 +7,7 @@ All notable changes to `url-validator` will be documented in this file.
 - Added `UrlValidator::curlResolve()`.
 - Added `GuzzleMiddleware`, which validates and pins every request a Guzzle client sends, including redirects.
 - Added the `allowedPrivateHosts` option, which lets specific hostnames resolve to private IP addresses.
+- Added the `disallowedIpv6Addresses` option. By default, it blocks the AWS and GCP IPv6 metadata addresses.
 
 ## 1.1.0 - 2026-07-06
 

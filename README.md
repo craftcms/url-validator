@@ -88,6 +88,7 @@ The following options can also be configured by passing an array to the construc
 - `disallowedHostnames`
 - `disallowedIpv4Addresses`
 - `disallowedIpv4Ranges`
+- `disallowedIpv6Addresses`
 - `ipv4FilterFlags` (the `FILTER_FLAG_IPV4` will always be added automatically)
 - `ipv6FilterFlags` (the `FILTER_FLAG_IPV6` will always be added automatically)
 - `allowedPrivateHosts` (see [Allowing internal hosts](#allowing-internal-hosts))
@@ -135,6 +136,14 @@ curl_setopt($ch, CURLOPT_RESOLVE, $validator->curlResolve($url));
 
 Requires `guzzlehttp/guzzle`. `GuzzleMiddleware` validates and pins every request a Guzzle client sends, including the ones sent while following redirects. A disallowed URL makes the request throw an `UrlValidationException`.
 
+If the client has already been created, you can add the middleware to its handler stack:
+
+```php
+GuzzleMiddleware::attach($client, $validator);
+```
+
+Otherwise, create the client with the handler stack:
+
 ```php
 use CraftCms\UrlValidator\GuzzleMiddleware;
 use GuzzleHttp\Client;
@@ -143,12 +152,6 @@ use GuzzleHttp\HandlerStack;
 $stack = HandlerStack::create();
 GuzzleMiddleware::push($stack, $validator);
 $client = new Client(['handler' => $stack]);
-```
-
-If the client has already been created, you can add the middleware to its handler stack instead:
-
-```php
-GuzzleMiddleware::attach($client, $validator);
 ```
 
 > [!NOTE]
