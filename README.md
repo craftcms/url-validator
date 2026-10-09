@@ -88,8 +88,10 @@ The following options can also be configured by passing an array to the construc
 - `disallowedHostnames`
 - `disallowedIpv4Addresses`
 - `disallowedIpv4Ranges`
+- `disallowedIpv6Addresses`
 - `ipv4FilterFlags` (the `FILTER_FLAG_IPV4` will always be added automatically)
 - `ipv6FilterFlags` (the `FILTER_FLAG_IPV6` will always be added automatically)
+- `allowedPrivateHosts` (see [Allowing internal hosts](#allowing-internal-hosts))
 
 See the codebase for the default values and expected types.
 
@@ -97,6 +99,63 @@ See the codebase for the default values and expected types.
 // Allow private IP addresses but keep the reserved ranges disallowed
 $validator = new UrlValidator(options: ['ipv4FilterFlags' => FILTER_FLAG_NO_RES_RANGE]);
 ```
+
+### Allowing internal hosts
+
+Private IP addresses (e.g. `10.0.0.0/8`, `192.168.0.0/16`, `fd00::/8`) are rejected by default. If your app needs to reach internal services, for example in local development or between containers in Docker or Kubernetes, list the hostnames that may resolve to private addresses:
+
+```php
+$validator = new UrlValidator(options: [
+    'allowedPrivateHosts' => [
+        'my-api.internal',
+        '*.ddev.site',
+    ],
+]);
+```
+
+- An exact hostname matches only that host.
+- A leading `*.` wildcard matches any subdomain, e.g. `*.site.testing.local` matches `api.site.testing.local` and `a.b.site.testing.local`, but not `site.testing.local` itself.
+- `*` isn’t allowed anywhere else, and a bare `*` isn’t allowed at all. Invalid patterns throw an `InvalidArgumentException`.
+- Only the private-range check is relaxed for these hosts. Loopback, link-local, reserved and cloud-metadata addresses, and disallowed hostnames such as `kubernetes.default.svc`, are still rejected.
+
+> [!WARNING]
+> - Only list hostnames whose DNS you control.
+> - List individual services rather than whole internal domains. Every listed host is reachable by anyone who can make your app send a request to it.
+
+### Pinning with curl
+
+Validating a URL and then letting curl resolve its hostname again leaves room for DNS rebinding. `curlResolve()` validates the URL and returns a `CURLOPT_RESOLVE` value that pins the hostname and port to the validated IP addresses.
+
+```php
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_RESOLVE, $validator->curlResolve($url));
+```
+
+### Using with Guzzle
+
+Requires `guzzlehttp/guzzle`. `GuzzleMiddleware` validates and pins every request a Guzzle client sends, including the ones sent while following redirects. A disallowed URL makes the request throw an `UrlValidationException`.
+
+If the client has already been created, you can add the middleware to its handler stack:
+
+```php
+GuzzleMiddleware::attach($client, $validator);
+```
+
+Otherwise, create the client with the handler stack:
+
+```php
+use CraftCms\UrlValidator\GuzzleMiddleware;
+use GuzzleHttp\Client;
+use GuzzleHttp\HandlerStack;
+
+$stack = HandlerStack::create();
+GuzzleMiddleware::push($stack, $validator);
+$client = new Client(['handler' => $stack]);
+```
+
+> [!NOTE]
+> - Pinning only works with Guzzle’s curl handler. The middleware turns the `stream` request option off, because the stream handler would ignore the pin.
+> - When requests go through an HTTP proxy, the proxy resolves the hostname itself, so the pin doesn’t apply there. URLs are still validated, but the proxy should enforce its own egress rules.
 
 ## Testing
 
