@@ -1,8 +1,6 @@
 # Changelog
 
-All notable changes to `url-validator` will be documented in this file.
-
-## Unreleased
+## 1.2.0 - 2026-10-09 
 
 - Added `UrlValidator::curlResolve()`.
 - Added `GuzzleMiddleware`, which validates and pins every request a Guzzle client sends, including redirects.
