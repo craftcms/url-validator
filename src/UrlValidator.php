@@ -77,10 +77,22 @@ class UrlValidator
     private int $ipv6FilterFlags = FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE | FILTER_FLAG_IPV6;
 
     /**
+     * @var string[] A list of hostnames that are allowed to resolve to private IP addresses.
+     *
+     * Each entry is either an exact hostname (`api.internal`) or a leading `*.` wildcard
+     * (`*.ddev.site`), which matches any subdomain but not the domain itself.
+     * Only the private-range check is relaxed for these hosts. Reserved, loopback, link-local,
+     * cloud-metadata and other disallowed addresses and hostnames are still rejected.
+     */
+    private array $allowedPrivateHosts = [];
+
+    /**
      * @param  callable(string):string[]|null  $resolver  A custom hostname resolver, primarily
      *                                                    useful for testing. Receives a hostname and should return its IP addresses. Defaults to
      *                                                    resolving against the system DNS via [[resolveHostIps()]].
-     * @param  array{allowedSchemes?:string[],disallowedHostnames?:string[],disallowedIpv4Addresses?:string[],disallowedIpv4Ranges?:array{0:string,1:int}[],ipv4FilterFlags?:int,ipv6FilterFlags?:int}|null  $options  Overrides for the default validation rules. Any key that’s omitted falls back to its default. `ipv4FilterFlags`/`ipv6FilterFlags` are combined with `FILTER_FLAG_IPV4`/`FILTER_FLAG_IPV6` respectively, so those don’t need to be included.
+     * @param  array{allowedSchemes?:string[],disallowedHostnames?:string[],disallowedIpv4Addresses?:string[],disallowedIpv4Ranges?:array{0:string,1:int}[],ipv4FilterFlags?:int,ipv6FilterFlags?:int,allowedPrivateHosts?:string[]}|null  $options  Overrides for the default validation rules. Any key that’s omitted falls back to its default. `ipv4FilterFlags`/`ipv6FilterFlags` are combined with `FILTER_FLAG_IPV4`/`FILTER_FLAG_IPV6` respectively, so those don’t need to be included.
+     *
+     * @throws \InvalidArgumentException if an `allowedPrivateHosts` entry isn’t a valid pattern.
      */
     public function __construct(?callable $resolver = null, ?array $options = null)
     {
@@ -100,6 +112,13 @@ class UrlValidator
             if (isset($options['ipv6FilterFlags'])) {
                 // if the options come from the user, ensure the ipv6 flag is always set
                 $this->ipv6FilterFlags = $options['ipv6FilterFlags'] | FILTER_FLAG_IPV6;
+            }
+
+            if (isset($options['allowedPrivateHosts'])) {
+                $this->allowedPrivateHosts = array_map(
+                    fn ($pattern): string => $this->normalizeAllowedPrivateHost($pattern),
+                    $options['allowedPrivateHosts'],
+                );
             }
         }
     }
@@ -126,6 +145,7 @@ class UrlValidator
         }
 
         $host = (string) parse_url($url, PHP_URL_HOST);
+        $allowPrivate = $this->isAllowedPrivateHost($host);
         $ips = ($this->resolver)($host);
 
         if (empty($ips)) {
@@ -133,7 +153,7 @@ class UrlValidator
         }
 
         foreach ($ips as $ip) {
-            if (! $this->validateIp($ip)) {
+            if (! $this->validateIp($ip, $allowPrivate)) {
                 throw new UrlValidationException("$url resolves to an invalid IP address.");
             }
         }
@@ -221,8 +241,9 @@ class UrlValidator
      *
      * Rejects private, reserved, loopback, link-local, CGNAT, and cloud-metadata
      * addresses, as well as IPv6 addresses that embed or tunnel an IPv4 address.
+     * Private addresses are allowed when `$allowPrivate` is true.
      */
-    public function validateIp(string $ip): bool
+    public function validateIp(string $ip, bool $allowPrivate = false): bool
     {
         // Parse to the packed (binary) form so checks are done on the canonical
         // address rather than its textual representation — which has many
@@ -236,13 +257,13 @@ class UrlValidator
         }
 
         return match (strlen($packed)) {
-            4 => $this->validateIpv4($ip),
-            16 => $this->validateIpv6($ip, $packed),
+            4 => $this->validateIpv4($ip, $allowPrivate),
+            16 => $this->validateIpv6($ip, $packed, $allowPrivate),
             default => false,
         };
     }
 
-    private function validateIpv4(string $ip): bool
+    private function validateIpv4(string $ip, bool $allowPrivate): bool
     {
         if (in_array($ip, $this->disallowedIpv4Addresses, true)) {
             return false;
@@ -254,10 +275,12 @@ class UrlValidator
             }
         }
 
-        return filter_var($ip, FILTER_VALIDATE_IP, $this->ipv4FilterFlags) !== false;
+        $flags = $allowPrivate ? $this->ipv4FilterFlags & ~FILTER_FLAG_NO_PRIV_RANGE : $this->ipv4FilterFlags;
+
+        return filter_var($ip, FILTER_VALIDATE_IP, $flags) !== false;
     }
 
-    private function validateIpv6(string $ip, string $packed): bool
+    private function validateIpv6(string $ip, string $packed, bool $allowPrivate): bool
     {
         // Reject any IPv6 address that embeds or tunnels an IPv4 address. We never
         // legitimately need to fetch a file over one, and they’re a common way to
@@ -281,7 +304,55 @@ class UrlValidator
             return false;
         }
 
-        return filter_var($ip, FILTER_VALIDATE_IP, $this->ipv6FilterFlags) !== false;
+        $flags = $allowPrivate ? $this->ipv6FilterFlags & ~FILTER_FLAG_NO_PRIV_RANGE : $this->ipv6FilterFlags;
+
+        return filter_var($ip, FILTER_VALIDATE_IP, $flags) !== false;
+    }
+
+    /**
+     * Returns whether a hostname is allowed to resolve to private IP addresses.
+     */
+    private function isAllowedPrivateHost(string $host): bool
+    {
+        // normalize the same way validateHostname() does
+        $host = rtrim(strtolower($host), '.');
+
+        foreach ($this->allowedPrivateHosts as $pattern) {
+            if (str_starts_with($pattern, '*.')) {
+                // a wildcard matches any subdomain, but not the domain itself
+                if (str_ends_with($host, substr($pattern, 1))) {
+                    return true;
+                }
+            } elseif ($host === $pattern) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Normalizes an allowed private host pattern and makes sure it’s safe to match against.
+     *
+     * @throws \InvalidArgumentException if the pattern isn’t an exact hostname or a leading `*.` wildcard.
+     */
+    private function normalizeAllowedPrivateHost(mixed $pattern): string
+    {
+        if (! is_string($pattern)) {
+            throw new \InvalidArgumentException('Allowed private hosts must be strings.');
+        }
+
+        $normalized = rtrim(strtolower(trim($pattern)), '.');
+
+        // `*` is only allowed as a whole leading label (e.g. `*.ddev.site`), so that
+        // a pattern like `api*` can’t also match `api.attacker.com`
+        $name = str_starts_with($normalized, '*.') ? substr($normalized, 2) : $normalized;
+
+        if ($name === '' || str_contains($name, '*')) {
+            throw new \InvalidArgumentException("“{$pattern}” isn’t a valid allowed private host.");
+        }
+
+        return $normalized;
     }
 
     /**
