@@ -119,9 +119,8 @@ $validator = new UrlValidator(options: [
 - Only the private-range check is relaxed for these hosts. Loopback, link-local, reserved and cloud-metadata addresses, and disallowed hostnames such as `kubernetes.default.svc`, are still rejected.
 
 > [!WARNING]
-> - Only list hostnames whose DNS you control. Never list wildcard-DNS services such as `nip.io` or `sslip.io`, which resolve to whatever IP address is in the name.
+> - Only list hostnames whose DNS you control.
 > - List individual services rather than whole internal domains. Every listed host is reachable by anyone who can make your app send a request to it.
-> - Don’t let users edit this list (e.g. through a control panel). Keep it in code or config files.
 
 ### Pinning with curl
 
