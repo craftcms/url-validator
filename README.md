@@ -98,6 +98,39 @@ See the codebase for the default values and expected types.
 $validator = new UrlValidator(options: ['ipv4FilterFlags' => FILTER_FLAG_NO_RES_RANGE]);
 ```
 
+### Pinning with curl
+
+Validating a URL and then letting curl resolve its hostname again leaves room for DNS rebinding. `curlResolve()` validates the URL and returns a `CURLOPT_RESOLVE` value that pins the hostname and port to the validated IP addresses.
+
+```php
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_RESOLVE, $validator->curlResolve($url));
+```
+
+### Using with Guzzle
+
+Requires `guzzlehttp/guzzle`. `GuzzleMiddleware` validates and pins every request a Guzzle client sends, including the ones sent while following redirects. A disallowed URL makes the request throw an `UrlValidationException`.
+
+```php
+use CraftCms\UrlValidator\GuzzleMiddleware;
+use GuzzleHttp\Client;
+use GuzzleHttp\HandlerStack;
+
+$stack = HandlerStack::create();
+GuzzleMiddleware::push($stack, $validator);
+$client = new Client(['handler' => $stack]);
+```
+
+If the client has already been created, you can add the middleware to its handler stack instead:
+
+```php
+GuzzleMiddleware::attach($client, $validator);
+```
+
+> [!NOTE]
+> - Pinning only works with Guzzle’s curl handler. The middleware turns the `stream` request option off, because the stream handler would ignore the pin.
+> - When requests go through an HTTP proxy, the proxy resolves the hostname itself, so the pin doesn’t apply there. URLs are still validated, but the proxy should enforce its own egress rules.
+
 ## Testing
 
 ```bash

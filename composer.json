@@ -22,10 +22,14 @@
         "ext-filter": "*"
     },
     "require-dev": {
+        "guzzlehttp/guzzle": "^7.0",
         "laravel/pint": "^1.29",
         "nunomaduro/collision": "^8.1",
         "phpstan/phpstan": "^2.0",
         "pestphp/pest": "^3.0"
+    },
+    "suggest": {
+        "guzzlehttp/guzzle": "Required to use GuzzleMiddleware"
     },
     "autoload": {
         "psr-4": {

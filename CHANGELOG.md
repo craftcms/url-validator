@@ -2,6 +2,11 @@
 
 All notable changes to `url-validator` will be documented in this file.
 
+## 1.2.0 - unreleased
+
+- Added `UrlValidator::curlResolve()`.
+- Added `GuzzleMiddleware`, which validates and pins every request a Guzzle client sends, including redirects.
+
 ## 1.1.0 - 2026-07-06
 
 - Added an `$options` argument to the `UrlValidator` constructor. ([#2](https://github.com/craftcms/url-validator/pull/2))

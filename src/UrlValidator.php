@@ -142,6 +142,33 @@ class UrlValidator
     }
 
     /**
+     * Validates a remote URL and returns a `CURLOPT_RESOLVE` value that pins its hostname and port to the validated IP addresses.
+     *
+     * @return string[]
+     *
+     * @throws UrlValidationException if the URL, or any IP it resolves to, is disallowed.
+     */
+    public function curlResolve(string $url): array
+    {
+        $ips = $this->validate($url);
+
+        $parts = parse_url($url);
+        $host = $parts['host'] ?? '';
+        $scheme = strtolower($parts['scheme'] ?? '');
+
+        if ($host === '' || $scheme === '') {
+            throw new UrlValidationException("$url could not be pinned to its resolved IP addresses.");
+        }
+
+        $port = $parts['port'] ?? ($scheme === 'https' ? 443 : 80);
+
+        // IPv6 addresses need to be wrapped in brackets
+        $ips = array_map(fn (string $ip): string => str_contains($ip, ':') ? "[$ip]" : $ip, $ips);
+
+        return ["$host:$port:".implode(',', $ips)];
+    }
+
+    /**
      * Returns whether a URL’s scheme is allowed (only `http` and `https`).
      */
     public function validateScheme(string $url): bool
