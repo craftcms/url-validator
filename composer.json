@@ -22,7 +22,7 @@
         "ext-filter": "*"
     },
     "require-dev": {
-        "guzzlehttp/guzzle": "^7.0",
+        "guzzlehttp/guzzle": "^8.3",
         "laravel/pint": "^1.29",
         "nunomaduro/collision": "^8.1",
         "phpstan/phpstan": "^2.0",
